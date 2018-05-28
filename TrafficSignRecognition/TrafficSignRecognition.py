@@ -1,5 +1,6 @@
 import cv2
 import pickle
+import math
 import numpy as np
 from skimage import exposure
 from skimage import feature
@@ -9,6 +10,10 @@ from tkinter import filedialog
 
 TRAIN_PATH = "C:/Users/zenbookx/Documents/Facultate/An III/Sem II/IP/Traffic-Sign-Recognition/TrafficSignRecognition/Training"
 TEST_PATH = "C:/Users/zenbookx/Documents/Facultate/An III/Sem II/IP/Traffic-Sign-Recognition/TrafficSignRecognition/Testing"
+train_images = []
+test_images = []
+train_labels = []
+test_labels = []
 
 lower_red1 = [0, 25, 30]
 upper_red1 = [6, 255, 255]
@@ -19,7 +24,7 @@ lower_blue = [95, 70, 56]
 upper_blue = [130, 255, 255]
 
 lower_yellow = [20, 25, 75]
-upper_yellow = [30, 250, 250]
+upper_yellow = [33, 250, 250]
 
 MIN_H = 40
 MIN_W = 40
@@ -109,34 +114,6 @@ def find_contours(original, binary_img, thresh):
     # cv2.imshow("contours", copy)
     return contours
 
-# def extract_sign(original_img, img):
-#     contours = find_contours(img)
-#     padding = 2
-#
-#     # TODO change code
-#     foundSign = False
-#
-#     signh, signw = int(0), int(0)
-#     for cnt in contours:
-#         x, y, w, h = cv2.boundingRect(cnt)
-#         cv2.rectangle(original_img, (x - padding, y - padding), (x + w + padding, y + h + padding), (0, 255, 0), 2)
-#         # print("H, w: %f %f" % (h, w))
-#         if (BOUNDING_MIN_H <= h <= BOUNDING_MAX_H and
-#                 BOUNDING_MIN_W <= w <= BOUNDING_MAX_W):
-#             signh = h
-#             signw = w
-#             roi = original_img[y:y + h + padding, x:x + w + padding]
-#             path = "sign" + str(index) + ".png"
-#             index += 1
-#             # cv2.imshow("ROI", roi)
-#             cv2.imwrite(path, roi)
-#             foundSign = True
-#
-#     cv2.imshow("image", original_img)
-#     path = "boundingboxes" + str(index) + ".png"
-#     cv2.imwrite(path, original_img)
-#     return (foundSign, signh, signw)
-
 
 def detect_shape(contour, roi):
     # initialize the shape name and approximate the contour
@@ -214,8 +191,8 @@ def load_data(data_dir):
     return images, labels
 
 def visualize_hog(roi):
-    (H, hogImage) = feature.hog(roi, orientations=9, pixels_per_cell=(20, 20), cells_per_block=(3, 3),
-                                    transform_sqrt=True, block_norm="L2-Hys", visualise=True)
+    (H, hogImage) = feature.hog(roi, orientations=9, pixels_per_cell=(20, 20),
+                    cells_per_block=(4, 4), transform_sqrt=True, block_norm="L1-sqrt", visualise=True)
     hogImage = exposure.rescale_intensity(hogImage, out_range=(0, 255))
     hogImage = hogImage.astype("uint8")
     print(len(H))
@@ -223,7 +200,7 @@ def visualize_hog(roi):
 
 def compute_hog(roi):
     H = feature.hog(roi, orientations=9, pixels_per_cell=(20, 20),
-                    cells_per_block=(3, 3), transform_sqrt=True, block_norm="L2-Hys")
+                    cells_per_block=(4, 4), transform_sqrt=True, block_norm="L1-sqrt")
     return H
 
 def visualize_hog_demo(img):
@@ -234,44 +211,31 @@ def visualize_hog_demo(img):
         print("No traffic sign found in image")
     cv2.waitKey(0)
 
-def main():
-    # in_path = filedialog.askopenfilename()
-    # (im, mask) = colour_segmentation(in_path, "red")
-    # # {im, mask) = colour_segmentation(in_path, "yellow")
-    # # (im, mask) = colour_segmentation(in_path, "blue")
-    #
-    # find_shapes(im, mask)
-    # train_images, train_labels = load_data(TRAIN_PATH)
-    test_images, test_labels = load_data(TEST_PATH)
-    print("----------Finished loading dataset")
-
-    # demo
-    # visualize_hog_demo(train_images[50])
-
+def load_features_to_pickle_file():
     # compute hog feature vectors for training images
-    # train_hog_features = []
-    # train_hog_labels = []
-    # no_sign_found_count = 0;
-    # for i in range(len(train_images)):
-    #     train_roi = extract_sign(train_images[i])
-    #     if type(train_roi) is np.ndarray:
-    #         H = compute_hog(train_roi)
-    #         train_hog_features.append(H)
-    #         train_hog_labels.append(train_labels[i])
-    #     else:
-    #         no_sign_found_count += 1
-    # print("----------Finished computing hog feature vectors for training")
-    # print("No of images with no sign: ", no_sign_found_count, "out of ", len(train_images))
-    # pickle.dump(train_hog_features, open("train_features.p", "wb"))
-    # pickle.dump(train_hog_labels, open("train_labels.p", "wb"))
+    train_hog_features = []
+    train_hog_labels = []
+    no_sign_found_count = 0;
+    for i in range(len(train_images)):
+        train_roi = extract_sign(train_images[i])
+        if type(train_roi) is np.ndarray:
+            H = compute_hog(train_roi)
+            train_hog_features.append(H)
+            train_hog_labels.append(train_labels[i])
+        else:
+            no_sign_found_count += 1
+    print("----------Finished computing hog feature vectors for training")
+    print("No of images with no sign: ", no_sign_found_count, "out of ", len(train_images))
+    # serialize data
+    pickle.dump(train_hog_features, open("train_features.p", "wb"))
+    pickle.dump(train_hog_labels, open("train_labels.p", "wb"))
 
-    train_features = pickle.load(open("train_features.p", "rb"))
-    train_labels = pickle.load(open("train_labels.p", "rb"))
-
+def predict_all(train_hog_features, train_hog_labels):
     print("[INFO] training classifier...")
     model = KNeighborsClassifier(n_neighbors=1)
-    model.fit(train_features, train_labels)
+    model.fit(train_hog_features, train_hog_labels)
     print("[INFO] evaluating...")
+
     no_sign_found_count = 0
     correct = 0
     total = 0
@@ -289,6 +253,64 @@ def main():
     print(no_sign_found_count, " signs were not found out of ", len(test_images))
     print("accuracy: ", float(correct) / total * 100, " %")
 
+def euclidean_distance(vector1, vector2):
+    dist = [math.pow((a - b), 2) for a, b in zip(vector1, vector2)]
+    dist = math.sqrt(sum(dist))
+    return dist
+
+
+def predict_one(train_hog_features, train_hog_labels):
+    global train_images
+    global train_labels
+
+    in_path = filedialog.askopenfilename()
+    img = cv2.imread(in_path, cv2.IMREAD_COLOR)
+    cv2.imshow("test image", img)
+    roi = extract_sign(img)
+    if type(roi) is np.ndarray:
+        H = compute_hog(roi)
+        min = euclidean_distance(H, train_hog_features[0])
+        minindex = 0
+        for idx,feature in enumerate(train_hog_features):
+            d = euclidean_distance(H, feature)
+            if d < min:
+                min = d
+                minindex = idx
+        label = train_hog_labels[minindex]
+        original_index = train_labels.index(label)
+        cv2.imshow("predicted", train_images[original_index])
+        print("predicted label: ", label)
+    else:
+        print("No sign found in picture")
+    cv2.waitKey(0)
+
+def main():
+    global train_images
+    global test_images
+    global train_labels
+    global test_labels
+
+    train_images, train_labels = load_data(TRAIN_PATH)
+    test_images, test_labels = load_data(TEST_PATH)
+    print("----------Finished loading dataset")
+    # compute hog feature vectors and load to pickle files
+    #load_features_to_pickle_file()
+
+    train_hog_features = pickle.load(open("train_features.p", "rb"))
+    train_hog_labels = pickle.load(open("train_labels.p", "rb"))
+
+    #predict_all(train_hog_features, train_hog_labels)
+    predict_one(train_hog_features, train_hog_labels)
+
+def main2():
+    # demo
+    in_path = filedialog.askopenfilename()
+    img = cv2.imread(in_path, cv2.IMREAD_COLOR)
+    cv2.imshow("original", img)
+    # (im, mask) = colour_segmentation(img, "yellow")
+    # cv2.imshow("binary", mask)
+    visualize_hog_demo(img)
+    cv2.waitKey(0)
 
 if __name__ == "__main__":
     main()
