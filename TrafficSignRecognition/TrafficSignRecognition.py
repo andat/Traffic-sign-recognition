@@ -4,6 +4,7 @@ import math
 import numpy as np
 from skimage import exposure
 from skimage import feature
+from scipy.spatial import distance
 from sklearn.neighbors import KNeighborsClassifier
 import os
 from tkinter import filedialog
@@ -24,7 +25,7 @@ lower_blue = [95, 70, 56]
 upper_blue = [130, 255, 255]
 
 lower_yellow = [20, 25, 75]
-upper_yellow = [33, 250, 250]
+upper_yellow = [33, 250, 255]
 
 MIN_H = 40
 MIN_W = 40
@@ -103,15 +104,16 @@ def colour_segmentation(img, colour = "all"):
     # cv2.waitKey(0)
 
 # find the external contours of shapes
-def find_contours(original, binary_img, thresh):
+def find_contours(original, binary_img, thresh, show):
     filled = fill_image(binary_img)
     # detect edges using canny
     canny = cv2.Canny(filled, thresh, 2 * thresh)
     # contours
     im2, contours, hierarchy = cv2.findContours(canny, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     copy = original.copy()
-    # cv2.drawContours(copy, contours, -1, (0, 255, 0), 1)
-    # cv2.imshow("contours", copy)
+    if show:
+        cv2.drawContours(copy, contours, -1, (0, 255, 0), 1)
+        cv2.imshow("contours", copy)
     return contours
 
 
@@ -148,8 +150,8 @@ def find_shapes(im, binary):
             cv2.imshow("roi", cropped)
             print(x, ":", y, " shape: ", detect_shape(cnt, cropped))
 
-def extract_roi(im, binary):
-    contours = find_contours(im, binary, 100)
+def extract_roi(im, binary, show = False):
+    contours = find_contours(im, binary, 100, show)
     grayscale = None
     for cnt in contours:
         x, y, w, h = cv2.boundingRect(cnt)
@@ -163,15 +165,15 @@ def extract_roi(im, binary):
             # cv2.imshow("roi", grayscale)
     return grayscale
 
-def extract_sign(image):
-    (img, mask) = colour_segmentation(image, "red")
-    roi = extract_roi(img, mask)
+def extract_sign(image, show = False):
+    (img, red_mask) = colour_segmentation(image, "red")
+    roi = extract_roi(img, red_mask, show)
     if not(type(roi) is np.ndarray):
-        (img, mask) = colour_segmentation(image, "blue")
-        roi = extract_roi(img, mask)
+        (img, blue_mask) = colour_segmentation(image, "blue")
+        roi = extract_roi(img, blue_mask, show)
         if not(type(roi) is np.ndarray):
-            (img, mask) = colour_segmentation(image, "yellow")
-            roi = extract_roi(img, mask)
+            (img, yell_mask) = colour_segmentation(image, "yellow")
+            roi = extract_roi(img, yell_mask, show)
     return roi
 
 
@@ -230,7 +232,7 @@ def load_features_to_pickle_file():
     pickle.dump(train_hog_features, open("train_features.p", "wb"))
     pickle.dump(train_hog_labels, open("train_labels.p", "wb"))
 
-def predict_all(train_hog_features, train_hog_labels):
+def predict_all_scikit(train_hog_features, train_hog_labels):
     print("[INFO] training classifier...")
     model = KNeighborsClassifier(n_neighbors=1)
     model.fit(train_hog_features, train_hog_labels)
@@ -253,6 +255,27 @@ def predict_all(train_hog_features, train_hog_labels):
     print(no_sign_found_count, " signs were not found out of ", len(test_images))
     print("accuracy: ", float(correct) / total * 100, " %")
 
+def predict_all(train_hog_features, train_hog_labels):
+    no_sign_found_count = 0
+    correct = 0
+    total = 0
+    for i, test_img in enumerate(test_images):
+        roi = extract_sign(test_img)
+        if type(roi) is np.ndarray:
+            total += 1
+            H = compute_hog(roi)
+            # distances = [euclidean_distance(H, f) for f in train_hog_features]
+            distances = [distance.euclidean(H, f) for f in train_hog_features]
+            min_index = np.argmin(distances)
+            predicted = train_hog_labels[min_index]
+            print("test image ", i, " predicted: ", predicted, " actual: ", test_labels[i])
+            if predicted == test_labels[i]:
+                correct += 1
+        else:
+            no_sign_found_count += 1
+    print(no_sign_found_count, " signs were not found out of ", len(test_images))
+    print("accuracy: ", float(correct) / total * 100, " %")
+
 def euclidean_distance(vector1, vector2):
     dist = [math.pow((a - b), 2) for a, b in zip(vector1, vector2)]
     dist = math.sqrt(sum(dist))
@@ -266,7 +289,7 @@ def predict_one(train_hog_features, train_hog_labels):
     in_path = filedialog.askopenfilename()
     img = cv2.imread(in_path, cv2.IMREAD_COLOR)
     cv2.imshow("test image", img)
-    roi = extract_sign(img)
+    roi = extract_sign(img, True)
     if type(roi) is np.ndarray:
         H = compute_hog(roi)
         min = euclidean_distance(H, train_hog_features[0])
@@ -299,8 +322,9 @@ def main():
     train_hog_features = pickle.load(open("train_features.p", "rb"))
     train_hog_labels = pickle.load(open("train_labels.p", "rb"))
 
-    #predict_all(train_hog_features, train_hog_labels)
-    predict_one(train_hog_features, train_hog_labels)
+    #predict_all_scikit(train_hog_features, train_hog_labels)
+    predict_all(train_hog_features, train_hog_labels)
+    #predict_one(train_hog_features, train_hog_labels)
 
 def main2():
     # demo
